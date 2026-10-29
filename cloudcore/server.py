@@ -29,6 +29,8 @@ mcp = MCPServer(
     instructions=(
         "CloudCore customer, support-ticket and review data for the Customer Success team. "
         "Use get_risk_signals for evidence and a rule-based attention suggestion. "
+        "Ticket content before 15 Feb 2026 and all (undated) reviews are unverified because of a data-integrity incident; "
+        "say so whenever you quote them. "
         "Never predict churn and never decide on a customer's behalf: a person reviews every result."
     ),
 )
@@ -86,7 +88,8 @@ def find_accounts(
     limit: int = 15,
 ) -> list[dict]:
     """Screen accounts by filters and return those at or above min_level, strongest evidence first.
-    Ranking: suggestion level, then switching language, then poor support experiences, then MRR."""
+    Ranking: suggestion level, then verified warning signs, then switching language, then poor
+    support experiences, then MRR (MRR orders accounts within a level; it never sets the level)."""
     c, t, r, _ = _customers()
     sel = c
     if region:
@@ -107,12 +110,14 @@ def find_accounts(
             "customer_id": cid,
             "company_name": a["company_name"],
             "rule_suggestion": a["rule_suggestion"],
+            "verified_warning_signs": e["verified_warning_signs"],
+            "unverified_warning_signs": e["unverified_warning_signs"],
             "switching_language": len(e["switching_language"]),
             "poor_experiences": len(e["low_satisfaction_tickets"]) + len(e["poor_reviews"]),
-            "profile_risk_factors": e["profile_risk_factors"],
+            "profile_context": e["profile_risk_factors"],
             "monthly_recurring_revenue": mrr,
         })
-    out.sort(key=lambda d: (LEVELS.index(d["rule_suggestion"]), -d["switching_language"],
+    out.sort(key=lambda d: (LEVELS.index(d["rule_suggestion"]), -d["verified_warning_signs"], -d["switching_language"],
                             -d["poor_experiences"], -d["monthly_recurring_revenue"]))
     return out[:limit]
 

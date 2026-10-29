@@ -139,6 +139,8 @@ table.t{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
 .stars .off{opacity:.25}
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap;line-height:17px}
 .chip.warn{border-color:transparent;background:var(--bad-bg);color:var(--bad);font-weight:600}
+.chip.ver{border-style:dashed}.chip.ver.ok{border-style:solid;border-color:transparent;background:var(--good-bg);color:var(--good)}
+.chip.ver.pre{color:var(--med);border-color:var(--med)}.chip.ver.und{color:var(--muted)}
 .chip.tier::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--tc,var(--muted))}
 .chip.tier.Basic{--tc:#94a3b8}.chip.tier.Standard{--tc:#3b82f6}.chip.tier.Premium{--tc:#8b5cf6}.chip.tier.Enterprise{--tc:#0891b2}
 .chips{display:flex;gap:4px;flex-wrap:wrap}
@@ -360,6 +362,7 @@ function initData(list) {
     a.lastContact = a.tickets.length ? a.tickets[a.tickets.length - 1].date : "";
     a.poor = a.evidence.low_satisfaction_tickets.length + a.evidence.poor_reviews.length;
     a.sw = a.evidence.switching_language.length;
+    a.vw = a.evidence.verified_warning_signs || 0;
   }
 }
 
@@ -373,7 +376,8 @@ const sc = s => `<span class="sc s${s}" title="Satisfaction ${s} of 5">${s}/5</s
 const stars = s => `<span class="stars s${s}" role="img" aria-label="${s} of 5 stars">${"★".repeat(s)}<span class="off">${"★".repeat(5 - s)}</span></span>`;
 const tier = t => `<span class="chip tier ${t}">${t}</span>`;
 const initials = n => n.split(/\s+/).map(w => w[0]).slice(0, 2).join("");
-const rankAcct = (x, y) => LEVELS.indexOf(x.level) - LEVELS.indexOf(y.level) || y.sw - x.sw || y.poor - x.poor || y.mrr - x.mrr;
+// Evidence first; MRR only orders accounts within the same level and evidence strength.
+const rankAcct = (x, y) => LEVELS.indexOf(x.level) - LEVELS.indexOf(y.level) || y.vw - x.vw || y.sw - x.sw || y.poor - x.poor || y.mrr - x.mrr;
 const icon = { spark: `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"/></svg>`,
   back: `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>`,
   x: `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="width:12px;height:12px"><path d="M6 6l12 12M18 6 6 18"/></svg>` };
@@ -383,9 +387,13 @@ function whyLine(a) {
   const q = e.switching_language[0]?.text || e.low_satisfaction_tickets[0]?.text || e.poor_reviews[0]?.text;
   return q ? `“${q}”` : (e.profile_risk_factors.join(" · ") || "No warning signs on record");
 }
-function msgFlags(x) { return (x.switching || x.themes?.length) ? `<div style="margin-top:4px">${flags(x)}</div>` : ""; }
+const VER = { "verified": ["ver ok", "Verified", "Ticket dated on or after 15 Feb 2026, validated after the data-integrity incident"],
+  "unverified-pre-incident": ["ver pre", "Unverified · pre-incident", "Dated before 15 Feb 2026, when records may have been tampered with"],
+  "unverified-undated": ["ver und", "Unverified · undated", "Reviews have no date, so they can't be checked against the incident"] };
+const ver = v => { const [c, l, t] = VER[v] || VER["unverified-undated"]; return `<span class="chip ${c}" title="${t}">${l}</span>`; };
+function msgFlags(x) { return `<div style="margin-top:4px">${flags(x)}</div>`; }
 function flags(x) {
-  return `<div class="chips">${x.switching ? `<span class="chip warn">Switching intent</span>` : ""}${(x.themes || []).map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div>`;
+  return `<div class="chips">${ver(x.verification)}${x.switching ? `<span class="chip warn">Switching intent</span>` : ""}${(x.themes || []).map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div>`;
 }
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
@@ -395,13 +403,14 @@ const S = {
   route: { page: "overview" }, reviews: [], names: {},
   sort: { customers: ["level", "asc"], tickets: ["date", "desc"], reviews: ["rating", "asc"] },
   f: { customers: { q: "", region: "", product: "", tier: "", level: "" },
-       tickets: { q: "", sat: "", product: "", region: "", channel: "", sw: "" },
+       tickets: { q: "", sat: "", product: "", region: "", channel: "", sw: "", ver: "" },
        reviews: { q: "", rating: "", product: "", region: "", sw: "" } },
   chat: [], busy: false, ctl: null, ctxOn: true,
 };
 let db = null, user = null, sample = null;
 const recentReviewed = () => new Set(S.reviews.filter(v => Date.now() - Date.parse(v.at) < 7 * 864e5).map(v => v.customerId));
-const weekList = () => { const r = recentReviewed(); return ACCOUNTS.filter(a => a.level === "High" && !r.has(a.id)).sort(rankAcct).slice(0, 10); };
+// High first, then Medium accounts with a warning sign, up to 10, skipping accounts reviewed in the last 7 days.
+const weekList = () => { const r = recentReviewed(); return ACCOUNTS.filter(a => (a.level === "High" || (a.level === "Medium" && a.poor + a.sw > 0)) && !r.has(a.id)).sort(rankAcct).slice(0, 10); };
 
 /* ================= routing ================= */
 function parse() {
@@ -457,6 +466,7 @@ function pageOverview() {
   for (const a of high) for (const [k, n] of Object.entries(a.evidence.complaint_themes)) themes[k.split(" (")[0]] = (themes[k.split(" (")[0]] || 0) + 1;
   const tops = Object.entries(themes).sort((a, b) => b[1] - a[1]).slice(0, 5), maxT = tops[0]?.[1] || 1;
   const sw = high.filter(a => a.sw).length, cs = high.filter(a => a.products === "CloudSync").length;
+  const unver = ACCOUNTS.filter(a => a.level === "Medium" && a.vw === 0 && (a.poor >= 2 || (a.sw && a.poor))).length;
   return `
   <div class="page-h"><div><h1>This week</h1><p>Accounts to call, ranked by the strength of their warning signs.</p></div>
     <div class="actions"><button class="btn ai" type="button" data-ask="week">${icon.spark}Ask AI for this week's call list</button></div></div>
@@ -468,10 +478,10 @@ function pageOverview() {
   </div>
   <div style="display:flex;flex-direction:column;gap:14px">
     <section class="card">
-      <div class="card-h"><h2>Call list</h2><span class="sub">Top ${wk.length} High-attention accounts not reviewed this week</span></div>
+      <div class="card-h"><h2>Call list</h2><span class="sub">${wk.length} accounts not reviewed this week · High first, then Medium · ordered by verified evidence, then MRR</span></div>
       ${wk.length ? `<div class="tbl-wrap" style="max-height:none"><table class="t"><thead><tr><th><span>Customer</span></th><th><span>Why now</span></th><th><span>Tier</span></th><th class="r"><span>MRR</span></th><th class="r"><span><span class="sr">Actions</span></span></th></tr></thead><tbody>
       ${wk.map(a => `<tr tabindex="0" data-href="customer-${a.id}"><td class="co">${esc(a.name)}<small>${a.id} · ${esc(a.region)}</small></td>
-        <td class="wrap"><span class="clamp">${esc(whyLine(a))}</span></td><td>${tier(a.tier)}</td><td class="r num">${money(a.mrr)}</td>
+        <td class="wrap">${lvl(a.level)} <span class="clamp" style="display:inline">${esc(whyLine(a))}</span></td><td>${tier(a.tier)}</td><td class="r num">${money(a.mrr)}</td>
         <td class="r"><button class="btn sm" type="button" data-brief="${a.id}" title="Ask the AI assistant for a brief on ${esc(a.name)}">${icon.spark}Brief</button></td></tr>`).join("")}
       </tbody></table></div>` : `<div class="empty">Every High-attention account has been reviewed this week.</div>`}
     </section>
@@ -482,6 +492,7 @@ function pageOverview() {
       <section class="card"><div class="card-h"><h2>Patterns to raise</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
         <div class="callout">${icon.spark}<span><strong>${cs} of ${high.length}</strong> High-attention accounts use CloudSync only. That points to a product reliability issue as well as a call issue.</span></div>
         <div class="callout">${icon.spark}<span><strong>${sw}</strong> High-attention accounts used switching language or named a competitor in their own words.</span></div>
+        <div class="callout">${icon.spark}<span><strong>${unver}</strong> Medium accounts have strong warning signs that all predate the data-integrity incident or are undated. Confirm with the customer before escalating.</span></div>
       </div></section>
     </div>
   </div>`;
@@ -525,26 +536,28 @@ function pageCustomer(a, tab) {
   let body = "";
   if (tab === "overview") {
     const items = [
-      ...e.switching_language.map(s => ({ c: `<span class="chip warn">Switching intent</span>`, q: s.text, src: `${s.source === "ticket" ? "Ticket" : "Review"}${s.date ? " · " + fmtDate(s.date) : ""} · ${s.score}/5` })),
-      ...e.low_satisfaction_tickets.filter(t => !e.switching_language.some(s => s.text === t.text)).map(t => ({ c: sc(t.score), q: t.text, src: `Ticket · ${fmtDate(t.date)}` })),
-      ...e.poor_reviews.filter(r => !e.switching_language.some(s => s.text === r.text)).map(r => ({ c: stars(r.rating), q: r.text, src: "Review" })),
+      ...e.switching_language.map(s => ({ c: `<span class="chip warn">Switching intent</span>`, q: s.text, v: s.verification, src: `${s.source === "ticket" ? "Ticket" : "Review"}${s.date ? " · " + fmtDate(s.date) : ""} · ${s.score}/5` })),
+      ...e.low_satisfaction_tickets.filter(t => !e.switching_language.some(s => s.text === t.text)).map(t => ({ c: sc(t.score), q: t.text, v: t.verification, src: `Ticket · ${fmtDate(t.date)}` })),
+      ...e.poor_reviews.filter(r => !e.switching_language.some(s => s.text === r.text)).map(r => ({ c: stars(r.score), q: r.text, v: r.verification, src: "Review" })),
     ];
     body = `<div class="grid2">
       <div style="display:flex;flex-direction:column;gap:14px">
         <section class="card"><div class="card-h"><h2>Why this level</h2><span class="sub">Rule-based starting point for the reviewer</span></div>
-          <div class="card-b why">${lvl(a.level)}<div>${a.reasons.map(r => `<p>${esc(r)}</p>`).join("")}<p class="muted" style="font-size:12px;margin-top:6px">Region and ticket volume are shown for context only and are not scored.</p></div></div></section>
+          <div class="card-b why">${lvl(a.level)}<div>${a.reasons.map(r => `<p>${esc(r)}</p>`).join("")}<p class="muted" style="font-size:12px;margin-top:6px">Profile (tier, tenure, products), region, ticket volume and MRR are context only and never set the level.</p></div></div></section>
         <section class="card"><div class="card-h"><h2>Warning signs in the customer's own words</h2><span class="sub">${items.length}</span></div>
-          <div class="card-b">${items.length ? `<ul class="evlist">${items.map(i => `<li><div>${i.c}</div><div><q>${esc(i.q)}</q><div class="src">${i.src}</div></div></li>`).join("")}</ul>`
+          <div class="card-b">${items.length ? `<ul class="evlist">${items.map(i => `<li><div>${i.c}</div><div><q>${esc(i.q)}</q><div class="src">${i.src} ${ver(i.v)}</div></div></li>`).join("")}</ul>`
             : `<p class="muted" style="margin:0">No switching language, low-satisfaction tickets or poor reviews on record.</p>`}</div></section>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <section class="card side-stats"><div class="card-h"><h2>Signals</h2></div><div class="card-b"><dl>
-          <dt>Profile risk factors</dt><dd>${e.profile_risk_factors.length} of 3</dd>
+          <dt>Verified warning signs</dt><dd>${e.verified_warning_signs}</dd>
+          <dt>Unverified warning signs</dt><dd>${e.unverified_warning_signs}</dd>
           <dt>Avg ticket satisfaction</dt><dd>${a.avgSat == null ? "—" : `<span class="sc s${Math.round(a.avgSat)}">${a.avgSat.toFixed(1)}</span>`}</dd>
           <dt>Low-satisfaction tickets</dt><dd>${e.low_satisfaction_tickets.length}</dd>
           <dt>Avg review rating</dt><dd>${e.avg_review_rating == null ? "—" : e.avg_review_rating.toFixed(1)}</dd>
           <dt>Last ticket</dt><dd>${fmtDate(a.lastContact)}</dd></dl>
-          ${e.profile_risk_factors.length ? `<div class="chips" style="margin-top:10px">${e.profile_risk_factors.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</div>` : ""}</div></section>
+          <div class="muted" style="font-size:11.5px;margin-top:10px">Profile · context only</div>
+          ${e.profile_risk_factors.length ? `<div class="chips" style="margin-top:4px">${e.profile_risk_factors.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</div>` : `<div class="muted" style="font-size:12px">Premium/Standard, established, multi-product</div>`}</div></section>
         <section class="card"><div class="card-h"><h2>Complaint themes</h2></div><div class="card-b">
           ${Object.keys(e.complaint_themes).length ? `<div class="chips">${Object.entries(e.complaint_themes).map(([k, n]) => `<span class="chip">${esc(k.split(" (")[0])} · ${n}</span>`).join("")}</div>` : `<span class="muted">None recorded</span>`}</div></section>
         <section class="card"><div class="card-h"><h2>Usage (${esc(a.billing?.billing_month || "")})</h2></div><div class="card-b side-stats"><dl>
@@ -586,20 +599,23 @@ function tickRows() {
   const f = S.f.tickets, q = f.q.toLowerCase();
   const rows = TICKETS.filter(t => (!q || t.ticket_text.toLowerCase().includes(q) || t.company.toLowerCase().includes(q) || t.cid.toLowerCase().includes(q) || t.ticket_id.toLowerCase().includes(q))
     && (!f.sat || (f.sat === "low" ? t.satisfaction_score <= 2 : f.sat === "mid" ? t.satisfaction_score === 3 : t.satisfaction_score >= 4))
-    && (!f.product || t.product === f.product) && (!f.region || t.region === f.region) && (!f.channel || t.channel === f.channel) && (!f.sw || t.switching));
+    && (!f.product || t.product === f.product) && (!f.region || t.region === f.region) && (!f.channel || t.channel === f.channel) && (!f.sw || t.switching)
+    && (!f.ver || (f.ver === "verified" ? t.verification === "verified" : t.verification !== "verified")));
   return sortRows(rows, "tickets", { id: t => t.ticket_id, date: t => t.date, company: t => t.company, product: t => t.product, channel: t => t.channel, sat: t => t.satisfaction_score });
 }
 function pageTickets() {
   const rows = tickRows(), f = "tickets";
   const low = TICKETS.filter(t => t.satisfaction_score <= 2).length, sw = TICKETS.filter(t => t.switching).length;
   return `
-  <div class="page-h"><div><h1>Support tickets</h1><p>${TICKETS.length} tickets · <span class="sc s2">≤2</span> ${low} low satisfaction · <span class="chip warn">Switching intent</span> ${sw}</p></div></div>
+  <div class="page-h"><div><h1>Support tickets</h1><p>${TICKETS.length} tickets · <span class="sc s2">≤2</span> ${low} low satisfaction · <span class="chip warn">Switching intent</span> ${sw} · ${ver("verified")} ${TICKETS.filter(t => t.verification === "verified").length}</p>
+    <p class="muted" style="font-size:12px">Tickets before 15 Feb 2026 may have been altered in the data-integrity incident. They still count, but can't make an account High on their own.</p></div></div>
   <section class="card">
     <div class="toolbar">
       <input type="search" data-f="tickets:q" value="${esc(S.f.tickets.q)}" placeholder="Search text, customer or ticket ID" aria-label="Search tickets">
       ${sel(f, "sat", "Satisfaction", [["low", "Low (1–2)"], ["mid", "Neutral (3)"], ["high", "Good (4–5)"]])}
       ${sel(f, "product", "Product", ["Analytics Pro", "CloudSync", "DataVault"])}${sel(f, "region", "Region", ["San Francisco", "Singapore", "Sydney"])}
       ${sel(f, "channel", "Channel", ["Chat", "Email", "Phone", "Portal"])}${sel(f, "sw", "Switching", [["1", "Switching intent only"]])}
+      ${sel(f, "ver", "Evidence", [["verified", "Verified (from 15 Feb 2026)"], ["unverified", "Unverified (before 15 Feb 2026)"]])}
       ${clearBtn(f)}<span class="count">${rows.length} of ${TICKETS.length}</span>
     </div>
     ${rows.length ? `<div class="tbl-wrap"><table class="t"><thead><tr>
@@ -660,17 +676,19 @@ function pageDecisions() {
 }
 function pageAbout() {
   const rules = [["Uncertain", "Switching language followed by a later positive support experience. A person needs to confirm intent."],
-    ["High", "All three profile risk factors: Basic support tier, tenure under 12 months, single product."],
-    ["High", "At least one profile risk factor plus a warning sign in the customer's own feedback (switching language or a named competitor, ticket satisfaction ≤ 2, review ≤ 2)."],
-    ["Medium", "Profile risk factor(s) with no warning sign yet. Check in, don't escalate."],
-    ["Uncertain", "A warning sign, but a healthy profile. Mixed signals for a person to judge."],
-    ["Low", "Healthy profile and no warning signs."]];
-  return `<div class="page-h"><div><h1>How attention levels work</h1><p>Rules built from CloudCore's Orange analysis. The first rule that matches sets the level.</p></div></div>
+    ["High", "Strong evidence (switching language or a named competitor together with a poor experience, or two or more poor experiences) and at least one of those warning signs is on a verified ticket."],
+    ["Medium", "The same strong evidence, but all of it predates the data-integrity incident or comes from undated reviews. Confirm with the customer first."],
+    ["Medium", "A single warning sign: one poor experience (ticket ≤ 2 or review ≤ 2) or switching language on its own."],
+    ["Uncertain", "Fewer than two tickets or reviews on record, or lukewarm feedback with no clear warning sign."],
+    ["Low", "Enough feedback, neutral to positive (average 3.5 or above), no warning signs."]];
+  return `<div class="page-h"><div><h1>How attention levels work</h1><p>Rules built from CloudCore's Orange analysis. The level comes from what customers said and experienced. The first rule that matches sets it.</p></div></div>
   <div class="grid2"><section class="card"><div class="tbl-wrap" style="max-height:none"><table class="t"><thead><tr><th><span>Order</span></th><th><span>Level</span></th><th><span>When it applies</span></th></tr></thead><tbody>
     ${rules.map(([l, d], i) => `<tr style="cursor:default"><td class="num">${i + 1}</td><td>${lvl(l)}</td><td class="wrap">${d}</td></tr>`).join("")}</tbody></table></div></section>
   <section class="card"><div class="card-h"><h2>Guardrails</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
     <p style="margin:0">Historical churn labels are never loaded into this console or shown to the assistant.</p>
-    <p style="margin:0">Region and ticket volume are context only. Sentiment scores are not used.</p>
+    <p style="margin:0">Profile (support tier, tenure, number of products), region, ticket volume and MRR are context only. Sentiment scores are not used.</p>
+    <p style="margin:0">MRR orders accounts within a level, so revenue at stake is visible, but it never raises or lowers a level.</p>
+    <p style="margin:0">Evidence labels: ${ver("verified")} ${ver("unverified-pre-incident")} ${ver("unverified-undated")}. Tickets before 15 Feb 2026 and all reviews may have been altered in the data-integrity incident.</p>
     <p style="margin:0">The assistant explains and may disagree with a rule, but it never changes a level silently. A person records every decision.</p>
     <p class="muted" style="margin:0;font-size:12px">Colour key: ${lvl("High")} ${lvl("Medium")} ${lvl("Uncertain")} ${lvl("Low")} · satisfaction ${sc(1)} ${sc(3)} ${sc(5)}</p></div></section></div>`;
 }
@@ -728,8 +746,10 @@ const INSTRUCTIONS = `You are the CloudCore Customer Risk Intelligence Assistant
 HOW YOU WORK
 - Use only the account data in this message and the tools. Never invent customers, tickets or quotes.
 - Each account comes with a rule-based "level" (High, Medium, Uncertain, Low) and "reasons". Start from it. Read the real tickets and reviews. If the text clearly contradicts the level, say so with your reason and add the line "Assistant disagrees with rules — needs human review". Never silently change it.
-- Rules behind the levels (from CloudCore's Orange analysis), first match wins: (1) switching language followed by a later positive ticket → Uncertain; (2) all three profile risk factors (Basic tier, tenure under 12 months, single product) → High; (3) any profile factor plus a warning sign in feedback (switching language or competitor named, ticket satisfaction ≤2, review ≤2) → High; (4) profile factor(s) with no warning sign → Medium; (5) warning sign but healthy profile → Uncertain; (6) otherwise Low.
-- Region and ticket volume are context only. Never raise attention because of where a customer is. Sentiment alone is not used.
+- Rules behind the levels (from CloudCore's Orange analysis), first match wins: (1) switching language followed by a later positive ticket → Uncertain; (2) strong evidence (switching language or a named competitor together with a poor experience, or two or more poor experiences; poor = ticket satisfaction ≤2 or review ≤2) with at least one warning sign on a verified ticket → High; (3) the same strong evidence but all unverified → Medium, confirm with the customer; (4) a single warning sign → Medium; (5) fewer than two feedback items, or lukewarm feedback → Uncertain; (6) neutral-to-positive feedback → Low.
+- Data integrity: ticket content dated before 15 Feb 2026 and all reviews (undated) may have been altered in a data-integrity incident. Each evidence item carries "verification": verified, unverified-pre-incident or unverified-undated. Say which applies whenever you quote evidence, and list unverified-only evidence under "Needs human review".
+- Profile (support tier, tenure, number of products), region, ticket volume and MRR are context only; never use them to raise or lower a level. You may mention MRR as revenue at stake when ordering a call list.
+- Never raise attention because of where a customer is or what tier they pay for. Sentiment alone is not used.
 - Historical churn labels are not available to you, by design. Never ask for them.
 - Never write messages that go straight to a customer. Talking points are for the CSM to use in their own words.
 - Plain Customer Success language. Quote customers' own words with date and score.
@@ -762,7 +782,7 @@ const TOOLS = [
     execute(i) { progress("Screening accounts…"); const keep = LEVELS.slice(0, LEVELS.indexOf(i.min_level || "Medium") + 1);
       return ACCOUNTS.filter(a => keep.includes(a.level) && (!i.region || a.region === i.region) && (!i.product || a.products.includes(String(i.product))) && (!i.support_tier || a.tier === i.support_tier))
         .sort(rankAcct).slice(0, Math.min(Number(i.limit) || 15, 25))
-        .map(a => ({ id: a.id, company: a.name, level: a.level, region: a.region, tier: a.tier, products: a.products, mrr: a.mrr, evidence_line: whyLine(a), profile_risk_factors: a.evidence.profile_risk_factors, poor_experiences: a.poor, switching_mentions: a.sw })); } },
+        .map(a => ({ id: a.id, company: a.name, level: a.level, region: a.region, tier: a.tier, products: a.products, mrr: a.mrr, evidence_line: whyLine(a), verified_warning_signs: a.vw, unverified_warning_signs: a.evidence.unverified_warning_signs, profile_context: a.evidence.profile_risk_factors, poor_experiences: a.poor, switching_mentions: a.sw })); } },
   { name: "get_account", description: "Full record for one account by ID (e.g. C0085): profile, billing, rule level and reasons, evidence, all tickets and reviews, and recent human review decisions.",
     inputSchema: { type: "object", properties: { customer_id: { type: "string" } }, required: ["customer_id"] },
     execute(i) { const a = BY_ID[String(i.customer_id).toUpperCase()]; if (!a) throw new Error("No account " + i.customer_id); progress(`Reading ${a.name}…`); return compact(a); } },

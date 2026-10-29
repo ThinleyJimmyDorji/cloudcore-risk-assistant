@@ -9,11 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import re
-from cloudcore.signals import load, assess, SWITCHING, THEMES
+from cloudcore.signals import load, assess, SWITCHING, THEMES, verification
 
 c, t, r, x = load()
 LEVELS = ["High", "Medium", "Uncertain", "Low"]
-def flag(d, text):
+def flag(d, text, source):
+    d["verification"] = verification(source, d.get("date"))
     d["switching"] = bool(SWITCHING.search(text))
     d["themes"] = [k.split(" (")[0] for k, pat in THEMES.items() if re.search(pat, text, re.I)]
     return d
@@ -28,8 +29,8 @@ for row in c.itertuples():
         "tier": row.support_tier,
         "billing": bill.iloc[-1].drop(["customer_id", "transaction_id"]).to_dict() if len(bill) else None,
         "level": a["rule_suggestion"], "reasons": a["rule_reasons"], "evidence": a["evidence"],
-        "tickets": [flag(d, d["ticket_text"]) for d in t[t.customer_id == row.customer_id].sort_values("date").drop(columns=["customer_id"]).to_dict("records")],
-        "reviews": [flag(d, d["review_text"]) for d in r[r.customer_id == row.customer_id].drop(columns=["customer_id"]).to_dict("records")],
+        "tickets": [flag(d, d["ticket_text"], "ticket") for d in t[t.customer_id == row.customer_id].sort_values("date").drop(columns=["customer_id"]).to_dict("records")],
+        "reviews": [flag(d, d["review_text"], "review") for d in r[r.customer_id == row.customer_id].drop(columns=["customer_id"]).to_dict("records")],
     })
 blob = json.dumps(accounts, separators=(",", ":"), default=lambda v: v.item() if hasattr(v, "item") else str(v))
 assert "churn_flag" not in blob

@@ -16,8 +16,8 @@ description: Assess one CloudCore account for Customer Success. Gives an attenti
 **Why this account may need attention** — 1–2 sentences.
 
 **Key evidence**
-- <quoted ticket/review text> (<ticket|review>, <date>, <score>/5)
-- Profile: <tier, tenure, products, MRR>
+- <quoted ticket/review text> (<ticket|review>, <date>, <score>/5, <Verified | Unverified · pre-incident | Unverified · undated>)
+- Context (not scored): <tier, tenure, products, MRR>
 
 **Main complaint / service themes** — <themes, or "none recorded">
 
@@ -27,7 +27,7 @@ description: Assess one CloudCore account for Customer Success. Gives an attenti
 
 **Talking points for the call** — 2–3 points the CSM can say in their own words. Acknowledge the specific problem and don't over-promise.
 
-**Needs human review** — what the data can't tell us (e.g. whether the issue was fixed, contract dates, the relationship history).
+**Needs human review** — what the data can't tell us (e.g. whether the issue was fixed, contract dates, the relationship history). If any key evidence is unverified, say it predates the data-integrity incident or is undated, and needs confirming with the customer.
 
 _Based on <n> tickets and <n> reviews. This is decision support, not a churn prediction._
 ```
