@@ -4,11 +4,14 @@ These rules encode the Assessment 2 Orange findings (see RULES.md). They do not
 predict churn. They gather evidence from what customers said and experienced,
 and suggest an attention level that a Customer Success person reviews.
 
-- The level comes from evidence in tickets and reviews. Profile facts (support
-  tier, tenure, product count), region, ticket volume and MRR are context only.
-- Ticket and review content before the data-integrity incident cut-off
-  (15 Feb 2026) may have been tampered with, and reviews carry no date, so that
-  evidence is "unverified". High needs at least one verified warning sign.
+- Profile risk factors (Basic support tier, tenure under 12 months, single
+  product) were the strongest pattern in the Orange analysis, so they count
+  towards the level, alongside warning signs in the customer's own feedback.
+- Region, ticket volume and MRR are context only.
+- Ticket content before the data-integrity incident cut-off (15 Feb 2026) may
+  have been tampered with, and reviews carry no date, so each evidence item is
+  labelled verified or unverified. The label is shown to staff and the
+  assistant; it does not change the level.
 - churn_flag is never an input.
 """
 from __future__ import annotations
@@ -37,7 +40,7 @@ THEMES = {
 }
 LOW_SAT = 2          # ticket satisfaction <= 2 counts as a poor support experience
 POOR_RATING = 2      # review rating <= 2 counts as poor feedback
-SHORT_TENURE = 12    # months (profile context only)
+SHORT_TENURE = 12    # months
 INCIDENT_CUTOFF = "2026-02-15"  # tickets on/after this date were validated after remediation
 
 
@@ -104,40 +107,34 @@ def assess(customer_id: str, c=None, t=None, r=None) -> dict:
                       and f[1] > last_switch_date and f[2] >= 4]
 
     n_items = len(feedback)
-    strong = bool(switching and poor) or len(poor) >= 2   # leaving language with pain, or repeated pain
+    n_prof = len(profile)
+    warning = bool(warnings)        # switching language, ticket <= 2 or review <= 2
     reasons = []
 
     # Rule order matters: the first matching rule sets the suggestion.
     if switching and later_positive:
         level = "Uncertain"
         reasons.append("Switching language was followed by a better support experience; a person needs to confirm intent.")
-    elif strong and verified_warnings:
+    elif n_prof == 3:
         level = "High"
-        reasons.append(("The customer's own words mention leaving or a competitor, alongside a poor experience"
-                        if switching and poor else "Repeated poor support experiences")
-                       + (", and this warning sign comes from a verified (post-incident) ticket." if len(verified_warnings) == 1
-                          else f", and {len(verified_warnings)} of these warning signs come from verified (post-incident) tickets."))
-    elif strong:
+        reasons.append("All three profile risk factors (Basic tier, short tenure, single product) — the strongest pattern in the Orange analysis.")
+    elif n_prof >= 1 and warning:
+        level = "High"
+        reasons.append("Profile risk factor(s) combined with a warning sign in the customer's own feedback.")
+    elif n_prof >= 1:
         level = "Medium"
-        reasons.append(("Leaving language with a poor experience" if switching and poor else "Repeated poor experiences")
-                       + ", but all of it predates the data-integrity incident or is undated. Confirm with the customer before treating this as High.")
-    elif switching or poor:
-        level = "Medium"
-        f = next(iter(warnings))
-        reasons.append(("Switching language" if switching else "One poor experience")
-                       + (" on a verified ticket" if verified_warnings else " (unverified evidence)")
-                       + ", without a repeated pattern yet. Check in and ask whether it was resolved.")
-    elif n_items < 2:
+        reasons.append("Profile risk factor(s) but no warning sign in tickets or reviews yet — worth a check-in, not an escalation.")
+    elif warning:
         level = "Uncertain"
-        reasons.append(f"Only {n_items} feedback item(s) on record — not enough evidence either way.")
+        reasons.append("Warning sign in feedback, but a healthy profile (Premium/Standard, established, multi-product). Mixed signals — a person should judge.")
     else:
-        avg = sum(f[2] for f in feedback) / n_items
-        if avg >= 3.5:
-            level = "Low"
-            reasons.append(f"Feedback is neutral-to-positive (average {avg:.1f}/5) with no warning signs.")
-        else:
-            level = "Uncertain"
-            reasons.append(f"Feedback is lukewarm (average {avg:.1f}/5) but shows no clear warning sign.")
+        level = "Low"
+        reasons.append("Healthy profile and no warning signs in feedback.")
+
+    if n_items == 0:
+        reasons.append("No tickets or reviews on record — the suggestion rests on profile alone, so the 'why' is thin.")
+    elif warning and not verified_warnings:
+        reasons.append("All warning signs predate the data-integrity incident (15 Feb 2026) or come from undated reviews — confirm with the customer.")
 
     verified_items = sum(verification(f[0], f[1]) == "verified" for f in feedback)
     return {
@@ -162,10 +159,9 @@ def assess(customer_id: str, c=None, t=None, r=None) -> dict:
         "context_not_scored": {
             "region": p.region,
             "ticket_count": int(len(tk)),
-            "profile": profile,
             "monthly_recurring_revenue": float(p.monthly_recurring_revenue),
-            "note": "Profile (support tier, tenure, product count), region, ticket volume and MRR are shown for context only. "
-                    "Scoring them would rate customers by what they buy or where they are, not by what they told us. "
+            "note": "Region, ticket volume and MRR are shown for context only. Ticket volume was not a reliable signal in the "
+                    "Orange analysis, and scoring by region would penalise customers for where they are. "
                     "MRR is used only to order accounts within the same level.",
         },
     }

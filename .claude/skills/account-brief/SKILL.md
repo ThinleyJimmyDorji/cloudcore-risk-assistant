@@ -17,7 +17,7 @@ description: Assess one CloudCore account for Customer Success. Gives an attenti
 
 **Key evidence**
 - <quoted ticket/review text> (<ticket|review>, <date>, <score>/5, <Verified | Unverified · pre-incident | Unverified · undated>)
-- Context (not scored): <tier, tenure, products, MRR>
+- Profile: <tier, tenure, products, MRR>
 
 **Main complaint / service themes** — <themes, or "none recorded">
 

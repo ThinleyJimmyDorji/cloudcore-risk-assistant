@@ -7,7 +7,7 @@ description: Produce Customer Success's weekly call list of CloudCore accounts t
 
 Priya's brief: *a short, accurate list beats a long noisy one.*
 
-1. Call `find_accounts` with any filters the user gave, `min_level="Medium"` and `limit=15`. High accounts come first, then Medium. The order is by verified evidence first, with MRR only breaking ties.
+1. Call `find_accounts` with any filters the user gave, `min_level="High"` and `limit=15`. If fewer than 5 come back, call it again with `min_level="Medium"` and mark those rows Medium. Within a level, accounts are ordered by verified evidence first, with MRR only breaking ties.
 2. Call `get_review_log()` and leave out any account a person reviewed in the last 7 days. List the excluded accounts in one line at the end.
 3. For each remaining account, call `get_risk_signals` and write one row. Cap the list at 10 rows unless the user asks for more.
 

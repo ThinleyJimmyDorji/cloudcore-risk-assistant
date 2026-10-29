@@ -466,7 +466,7 @@ function pageOverview() {
   for (const a of high) for (const [k, n] of Object.entries(a.evidence.complaint_themes)) themes[k.split(" (")[0]] = (themes[k.split(" (")[0]] || 0) + 1;
   const tops = Object.entries(themes).sort((a, b) => b[1] - a[1]).slice(0, 5), maxT = tops[0]?.[1] || 1;
   const sw = high.filter(a => a.sw).length, cs = high.filter(a => a.products === "CloudSync").length;
-  const unver = ACCOUNTS.filter(a => a.level === "Medium" && a.vw === 0 && (a.poor >= 2 || (a.sw && a.poor))).length;
+  const unver = high.filter(a => a.vw === 0 && a.poor + a.sw > 0).length;
   return `
   <div class="page-h"><div><h1>This week</h1><p>Accounts to call, ranked by the strength of their warning signs.</p></div>
     <div class="actions"><button class="btn ai" type="button" data-ask="week">${icon.spark}Ask AI for this week's call list</button></div></div>
@@ -492,7 +492,7 @@ function pageOverview() {
       <section class="card"><div class="card-h"><h2>Patterns to raise</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
         <div class="callout">${icon.spark}<span><strong>${cs} of ${high.length}</strong> High-attention accounts use CloudSync only. That points to a product reliability issue as well as a call issue.</span></div>
         <div class="callout">${icon.spark}<span><strong>${sw}</strong> High-attention accounts used switching language or named a competitor in their own words.</span></div>
-        <div class="callout">${icon.spark}<span><strong>${unver}</strong> Medium accounts have strong warning signs that all predate the data-integrity incident or are undated. Confirm with the customer before escalating.</span></div>
+        <div class="callout">${icon.spark}<span><strong>${unver}</strong> High-attention accounts have warning signs that all predate the data-integrity incident or are undated. Confirm the problem with the customer on the call.</span></div>
       </div></section>
     </div>
   </div>`;
@@ -543,7 +543,7 @@ function pageCustomer(a, tab) {
     body = `<div class="grid2">
       <div style="display:flex;flex-direction:column;gap:14px">
         <section class="card"><div class="card-h"><h2>Why this level</h2><span class="sub">Rule-based starting point for the reviewer</span></div>
-          <div class="card-b why">${lvl(a.level)}<div>${a.reasons.map(r => `<p>${esc(r)}</p>`).join("")}<p class="muted" style="font-size:12px;margin-top:6px">Profile (tier, tenure, products), region, ticket volume and MRR are context only and never set the level.</p></div></div></section>
+          <div class="card-b why">${lvl(a.level)}<div>${a.reasons.map(r => `<p>${esc(r)}</p>`).join("")}<p class="muted" style="font-size:12px;margin-top:6px">Region, ticket volume and MRR are shown for context only and are not scored.</p></div></div></section>
         <section class="card"><div class="card-h"><h2>Warning signs in the customer's own words</h2><span class="sub">${items.length}</span></div>
           <div class="card-b">${items.length ? `<ul class="evlist">${items.map(i => `<li><div>${i.c}</div><div><q>${esc(i.q)}</q><div class="src">${i.src} ${ver(i.v)}</div></div></li>`).join("")}</ul>`
             : `<p class="muted" style="margin:0">No switching language, low-satisfaction tickets or poor reviews on record.</p>`}</div></section>
@@ -556,7 +556,7 @@ function pageCustomer(a, tab) {
           <dt>Low-satisfaction tickets</dt><dd>${e.low_satisfaction_tickets.length}</dd>
           <dt>Avg review rating</dt><dd>${e.avg_review_rating == null ? "—" : e.avg_review_rating.toFixed(1)}</dd>
           <dt>Last ticket</dt><dd>${fmtDate(a.lastContact)}</dd></dl>
-          <div class="muted" style="font-size:11.5px;margin-top:10px">Profile · context only</div>
+          <div class="muted" style="font-size:11.5px;margin-top:10px">Profile risk factors · ${e.profile_risk_factors.length} of 3</div>
           ${e.profile_risk_factors.length ? `<div class="chips" style="margin-top:4px">${e.profile_risk_factors.map(p => `<span class="chip">${esc(p)}</span>`).join("")}</div>` : `<div class="muted" style="font-size:12px">Premium/Standard, established, multi-product</div>`}</div></section>
         <section class="card"><div class="card-h"><h2>Complaint themes</h2></div><div class="card-b">
           ${Object.keys(e.complaint_themes).length ? `<div class="chips">${Object.entries(e.complaint_themes).map(([k, n]) => `<span class="chip">${esc(k.split(" (")[0])} · ${n}</span>`).join("")}</div>` : `<span class="muted">None recorded</span>`}</div></section>
@@ -608,7 +608,7 @@ function pageTickets() {
   const low = TICKETS.filter(t => t.satisfaction_score <= 2).length, sw = TICKETS.filter(t => t.switching).length;
   return `
   <div class="page-h"><div><h1>Support tickets</h1><p>${TICKETS.length} tickets · <span class="sc s2">≤2</span> ${low} low satisfaction · <span class="chip warn">Switching intent</span> ${sw} · ${ver("verified")} ${TICKETS.filter(t => t.verification === "verified").length}</p>
-    <p class="muted" style="font-size:12px">Tickets before 15 Feb 2026 may have been altered in the data-integrity incident. They still count, but can't make an account High on their own.</p></div></div>
+    <p class="muted" style="font-size:12px">Tickets before 15 Feb 2026 may have been altered in the data-integrity incident. They still count; the label tells you to confirm the problem with the customer.</p></div></div>
   <section class="card">
     <div class="toolbar">
       <input type="search" data-f="tickets:q" value="${esc(S.f.tickets.q)}" placeholder="Search text, customer or ticket ID" aria-label="Search tickets">
@@ -676,19 +676,19 @@ function pageDecisions() {
 }
 function pageAbout() {
   const rules = [["Uncertain", "Switching language followed by a later positive support experience. A person needs to confirm intent."],
-    ["High", "Strong evidence (switching language or a named competitor together with a poor experience, or two or more poor experiences) and at least one of those warning signs is on a verified ticket."],
-    ["Medium", "The same strong evidence, but all of it predates the data-integrity incident or comes from undated reviews. Confirm with the customer first."],
-    ["Medium", "A single warning sign: one poor experience (ticket ≤ 2 or review ≤ 2) or switching language on its own."],
-    ["Uncertain", "Fewer than two tickets or reviews on record, or lukewarm feedback with no clear warning sign."],
-    ["Low", "Enough feedback, neutral to positive (average 3.5 or above), no warning signs."]];
-  return `<div class="page-h"><div><h1>How attention levels work</h1><p>Rules built from CloudCore's Orange analysis. The level comes from what customers said and experienced. The first rule that matches sets it.</p></div></div>
+    ["High", "All three profile risk factors: Basic support tier, tenure under 12 months, single product."],
+    ["High", "At least one profile risk factor plus a warning sign in the customer's own feedback (switching language or a named competitor, ticket satisfaction ≤ 2, review ≤ 2)."],
+    ["Medium", "Profile risk factor(s) with no warning sign yet. Check in, don't escalate."],
+    ["Uncertain", "A warning sign, but a healthy profile. Mixed signals for a person to judge."],
+    ["Low", "Healthy profile and no warning signs."]];
+  return `<div class="page-h"><div><h1>How attention levels work</h1><p>Rules built from CloudCore's Orange analysis. The first rule that matches sets the level.</p></div></div>
   <div class="grid2"><section class="card"><div class="tbl-wrap" style="max-height:none"><table class="t"><thead><tr><th><span>Order</span></th><th><span>Level</span></th><th><span>When it applies</span></th></tr></thead><tbody>
     ${rules.map(([l, d], i) => `<tr style="cursor:default"><td class="num">${i + 1}</td><td>${lvl(l)}</td><td class="wrap">${d}</td></tr>`).join("")}</tbody></table></div></section>
   <section class="card"><div class="card-h"><h2>Guardrails</h2></div><div class="card-b" style="display:flex;flex-direction:column;gap:8px">
     <p style="margin:0">Historical churn labels are never loaded into this console or shown to the assistant.</p>
-    <p style="margin:0">Profile (support tier, tenure, number of products), region, ticket volume and MRR are context only. Sentiment scores are not used.</p>
+    <p style="margin:0">Region, ticket volume and MRR are context only. Sentiment scores are not used.</p>
     <p style="margin:0">MRR orders accounts within a level, so revenue at stake is visible, but it never raises or lowers a level.</p>
-    <p style="margin:0">Evidence labels: ${ver("verified")} ${ver("unverified-pre-incident")} ${ver("unverified-undated")}. Tickets before 15 Feb 2026 and all reviews may have been altered in the data-integrity incident.</p>
+    <p style="margin:0">Evidence labels: ${ver("verified")} ${ver("unverified-pre-incident")} ${ver("unverified-undated")}. Tickets before 15 Feb 2026 and all reviews may have been altered in the data-integrity incident. The label doesn't change the level, but evidence that is all unverified is flagged for confirmation.</p>
     <p style="margin:0">The assistant explains and may disagree with a rule, but it never changes a level silently. A person records every decision.</p>
     <p class="muted" style="margin:0;font-size:12px">Colour key: ${lvl("High")} ${lvl("Medium")} ${lvl("Uncertain")} ${lvl("Low")} · satisfaction ${sc(1)} ${sc(3)} ${sc(5)}</p></div></section></div>`;
 }
@@ -746,9 +746,9 @@ const INSTRUCTIONS = `You are the CloudCore Customer Risk Intelligence Assistant
 HOW YOU WORK
 - Use only the account data in this message and the tools. Never invent customers, tickets or quotes.
 - Each account comes with a rule-based "level" (High, Medium, Uncertain, Low) and "reasons". Start from it. Read the real tickets and reviews. If the text clearly contradicts the level, say so with your reason and add the line "Assistant disagrees with rules — needs human review". Never silently change it.
-- Rules behind the levels (from CloudCore's Orange analysis), first match wins: (1) switching language followed by a later positive ticket → Uncertain; (2) strong evidence (switching language or a named competitor together with a poor experience, or two or more poor experiences; poor = ticket satisfaction ≤2 or review ≤2) with at least one warning sign on a verified ticket → High; (3) the same strong evidence but all unverified → Medium, confirm with the customer; (4) a single warning sign → Medium; (5) fewer than two feedback items, or lukewarm feedback → Uncertain; (6) neutral-to-positive feedback → Low.
-- Data integrity: ticket content dated before 15 Feb 2026 and all reviews (undated) may have been altered in a data-integrity incident. Each evidence item carries "verification": verified, unverified-pre-incident or unverified-undated. Say which applies whenever you quote evidence, and list unverified-only evidence under "Needs human review".
-- Profile (support tier, tenure, number of products), region, ticket volume and MRR are context only; never use them to raise or lower a level. You may mention MRR as revenue at stake when ordering a call list.
+- Rules behind the levels (from CloudCore's Orange analysis), first match wins: (1) switching language followed by a later positive ticket → Uncertain; (2) all three profile risk factors (Basic tier, tenure under 12 months, single product) → High; (3) any profile factor plus a warning sign in feedback (switching language or competitor named, ticket satisfaction ≤2, review ≤2) → High; (4) profile factor(s) with no warning sign → Medium; (5) warning sign but healthy profile → Uncertain; (6) otherwise Low.
+- Data integrity: ticket content dated before 15 Feb 2026 and all reviews (undated) may have been altered in a data-integrity incident. Each evidence item carries "verification": verified, unverified-pre-incident or unverified-undated. It does not change the level, but say which applies whenever you quote evidence, and list unverified-only evidence under "Needs human review".
+- Region, ticket volume and MRR are context only; never use them to raise or lower a level. You may mention MRR as revenue at stake when ordering a call list.
 - Never raise attention because of where a customer is or what tier they pay for. Sentiment alone is not used.
 - Historical churn labels are not available to you, by design. Never ask for them.
 - Never write messages that go straight to a customer. Talking points are for the CSM to use in their own words.
